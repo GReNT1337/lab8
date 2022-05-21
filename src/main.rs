@@ -1,5 +1,13 @@
 use std::io;
+use serde_derive::{
+    Deserialize,
+    Serialize,
+};
 use std::io::BufRead;
+use warp::{
+    http::{Response, StatusCode},
+    Filter,
+};
 
 #[cfg_attr(test, derive(PartialEq, Debug))]
 enum Relation {
@@ -16,6 +24,11 @@ enum Error {
     EmptyString,
     OneCoord,
     TooMuchCoords,
+}
+#[derive(Deserialize, Serialize)]
+struct MyPoint {
+    x: i32,
+    y: i32,
 }
 
 fn distance_relation(distance: i32, border: i32) -> Relation {
@@ -109,13 +122,40 @@ fn format_result(result: Result<Relation, Error>) -> &'static str {
     }
 }
 
-fn main() {
-    for line in io::stdin().lock().lines() {
-        let line = line.expect("Can't read line from STDIN");
-        let res = set_point_location(line);
-        println!("{}", format_result(res));
-    }
+#[tokio::main]
+async fn main() {    
+    
+    let ans = warp::get()
+        .and(warp::path("figure"))
+        .and(warp::query::<MyPoint>())
+        .map(|p: MyPoint| {
+            Response::builder().body(format!("x={}, y={}", p.x, p.y));
+            let x: String = p.x.to_string();
+            let y: String = p.y.to_string();
+            let line = x + " " + &y;
+            let res = set_point_location(line);
+            let result = format_result(res);
+            Response::builder().body(format!("{}", result))
+        });
+
+    warp::serve(ans)
+    .run(([127,0,0,1], 3030))
+    .await;
+    
+     
+    
 }
+// async fn main() {
+//     for line in io::stdin().lock().lines() {
+//         let line = line.expect("Can't read line from STDIN");
+//         let res = set_point_location(line);
+//         let result = warp::path("Figure").param(format_result(res));
+//         //println!("{}", format_result(res));
+//     }
+//     warp::serve(result)
+//         .run(([127, 0, 0, 1], 3030))
+//         .await;
+// }
 
 #[cfg(test)]
 mod tests {
