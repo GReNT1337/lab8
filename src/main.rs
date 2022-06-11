@@ -1,13 +1,6 @@
-use std::io;
-use serde_derive::{
-    Deserialize,
-    Serialize,
-};
-use std::io::BufRead;
-use warp::{
-    http::{Response, StatusCode},
-    Filter,
-};
+use serde::{Deserialize, Deserializer};
+use serde_derive::Deserialize;
+use warp::{http::Response, Filter};
 
 #[cfg_attr(test, derive(PartialEq, Debug))]
 enum Relation {
@@ -25,10 +18,26 @@ enum Error {
     OneCoord,
     TooMuchCoords,
 }
-#[derive(Deserialize, Serialize)]
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct MyPoint {
+    #[serde(deserialize_with = "deserialize_coord")]
     x: i32,
+    #[serde(deserialize_with = "deserialize_coord")]
     y: i32,
+}
+
+pub fn deserialize_coord<'de, D>(deserializer: D) -> Result<i32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let c = i32::deserialize(deserializer)?;
+    if c >= 100 {
+        Err(serde::de::Error::custom("ERROR: out of range"))
+    } else {
+        Ok(c)
+    }
 }
 
 fn distance_relation(distance: i32, border: i32) -> Relation {
@@ -122,59 +131,53 @@ fn format_result(result: Result<Relation, Error>) -> &'static str {
     }
 }
 
-#[tokio::main]
-async fn main() {    
-    
-    let ans = warp::get()
+pub fn figure() -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+    warp::get()
         .and(warp::path("figure"))
         .and(warp::query::<MyPoint>())
         .map(|p: MyPoint| {
-            Response::builder().body(format!("x={}, y={}", p.x, p.y));
             let x: String = p.x.to_string();
             let y: String = p.y.to_string();
             let line = x + " " + &y;
             let res = set_point_location(line);
             let result = format_result(res);
-            Response::builder().body(format!("{}", result))
-        });
-
-    warp::serve(ans)
-    .run(([127,0,0,1], 3030))
-    .await;
-    
-     
-    
+            Response::builder().body(result.to_string())
+        })
 }
-// async fn main() {
-//     for line in io::stdin().lock().lines() {
-//         let line = line.expect("Can't read line from STDIN");
-//         let res = set_point_location(line);
-//         let result = warp::path("Figure").param(format_result(res));
-//         //println!("{}", format_result(res));
-//     }
-//     warp::serve(result)
-//         .run(([127, 0, 0, 1], 3030))
-//         .await;
-// }
+
+#[tokio::main]
+async fn main() {
+    let ans = figure();
+    warp::serve(ans).run(([127, 0, 0, 1], 3030)).await;
+}
 
 #[cfg(test)]
 mod tests {
+    use warp::http::StatusCode;
+    use warp::test::request;
+
     use super::*;
 
-    #[test]
-    fn check_radii() {
-        assert_eq!(radii_calc(-2, 4, 5), Inside);
-        assert_eq!(radii_calc(-3, -4, 5), Border);
-        assert_eq!(radii_calc(30, 40, 20), Outside);
+    #[tokio::test]
+    async fn test_get() {
+        let resp = request()
+            .method("GET")
+            .path("/figure?x=10&y=10")
+            .reply(&figure())
+            .await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.body(), "border");
     }
-    #[test]
-    fn check_box() {
-        assert_eq!(box_calc(-2, 4, 5), Inside);
-        assert_eq!(box_calc(-3, -5, 5), Border);
-        assert_eq!(box_calc(30, 40, 20), Outside);
-    }
-    #[test]
-    fn check_figure() {
-        assert_eq!(point_location(-2, 4), Outside);
+
+    #[tokio::test]
+    async fn test_too_much_coord_error() {
+        let resp = request()
+            .method("GET")
+            .path("/figure?x=10&y=10&z=23")
+            .reply(&figure())
+            .await;
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 }
