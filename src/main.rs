@@ -2,7 +2,7 @@ use warp::{http::Response, Filter};
 
 mod figure;
 
-pub fn routes() -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+fn routes() -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     let figure1 = warp::path("figure-1")
         .and(warp::query::<figure::MyPoint>())
         .map(|p: figure::MyPoint| {
